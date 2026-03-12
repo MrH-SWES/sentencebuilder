@@ -319,6 +319,14 @@
       <button class="tense-btn active" data-num="singular" onclick="setNounNumber('singular')">Singular</button>
       <button class="tense-btn" data-num="plural" onclick="setNounNumber('plural')">Plural</button>
     </div>
+    <div id="nounTypeBar" class="tense-bar" style="display:none;">
+      <span class="tense-label">Type:</span>
+      <button class="tense-btn active" data-ntype="all" onclick="setNounType('all')">All</button>
+      <button class="tense-btn" data-ntype="person" onclick="setNounType('person')">People</button>
+      <button class="tense-btn" data-ntype="animal" onclick="setNounType('animal')">Animals</button>
+      <button class="tense-btn" data-ntype="place" onclick="setNounType('place')">Places</button>
+      <button class="tense-btn" data-ntype="thing" onclick="setNounType('thing')">Things</button>
+    </div>
     <div class="word-grid" id="wordGrid"></div>
   </div>
 
@@ -331,6 +339,10 @@
 <script>
 // === VERB DATA ===
 const VERB_DATA = [
+  { base:"be",     present:"is",     past:"was",      pp:"been",     prog:"being",  irregular_agreement:true,
+    present_pl:"are", past_pl:"were" },
+  { base:"have",   present:"has",    past:"had",      pp:"had",      prog:"having", irregular_agreement:true,
+    present_pl:"have", past_pl:"had" },
   { base:"run",    present:"runs",    past:"ran",      pp:"run",      prog:"running" },
   { base:"walk",   present:"walks",   past:"walked",   pp:"walked",   prog:"walking" },
   { base:"sprint", present:"sprints", past:"sprinted", pp:"sprinted", prog:"sprinting" },
@@ -359,6 +371,16 @@ const VERB_DATA = [
   { base:"swim",   present:"swims",   past:"swam",     pp:"swum",     prog:"swimming" },
   { base:"open",   present:"opens",   past:"opened",   pp:"opened",   prog:"opening" },
   { base:"win",    present:"wins",    past:"won",      pp:"won",      prog:"winning" },
+  { base:"sing",   present:"sings",   past:"sang",     pp:"sung",     prog:"singing" },
+  { base:"write",  present:"writes",  past:"wrote",    pp:"written",  prog:"writing" },
+  { base:"read",   present:"reads",   past:"read",     pp:"read",     prog:"reading" },
+  { base:"give",   present:"gives",   past:"gave",     pp:"given",    prog:"giving" },
+  { base:"think",  present:"thinks",  past:"thought",  pp:"thought",  prog:"thinking" },
+  { base:"see",    present:"sees",    past:"saw",      pp:"seen",     prog:"seeing" },
+  { base:"go",     present:"goes",    past:"went",     pp:"gone",     prog:"going" },
+  { base:"make",   present:"makes",   past:"made",     pp:"made",     prog:"making" },
+  { base:"sit",    present:"sits",    past:"sat",      pp:"sat",      prog:"sitting" },
+  { base:"stand",  present:"stands",  past:"stood",    pp:"stood",    prog:"standing" },
 ];
 
 const TENSE_NAMES = {
@@ -367,40 +389,137 @@ const TENSE_NAMES = {
   present_perf:"Pres. Perf.", past_perf:"Past Perf.", future_perf:"Fut. Perf."
 };
 
-function getVerbWord(vi, tense) {
+function getVerbWord(vi, tense, number) {
   const v = VERB_DATA[vi];
+  const pl = (number === 'plural');
+  const hasIrr = v.irregular_agreement;
+
   switch(tense) {
-    case 'past':         return v.past;
-    case 'future':       return 'will '+v.base;
-    case 'present_prog': return 'is '+v.prog;
-    case 'past_prog':    return 'was '+v.prog;
-    case 'present_perf': return 'has '+v.pp;
-    case 'past_perf':    return 'had '+v.pp;
-    case 'future_perf':  return 'will have '+v.pp;
-    default:             return v.present;
+    case 'past':
+      return (hasIrr && pl && v.past_pl) ? v.past_pl : v.past;
+    case 'future':
+      return 'will '+v.base;
+    case 'present_prog':
+      // "be" itself in progressive doesn't really apply, but for other verbs:
+      if (hasIrr && v.base === 'be') return pl ? 'are being' : 'is being';
+      return (pl?'are ':'is ')+v.prog;
+    case 'past_prog':
+      if (hasIrr && v.base === 'be') return pl ? 'were being' : 'was being';
+      return (pl?'were ':'was ')+v.prog;
+    case 'present_perf':
+      if (hasIrr && v.base === 'be') return pl ? 'have been' : 'has been';
+      if (hasIrr && v.base === 'have') return pl ? 'have had' : 'has had';
+      return (pl?'have ':'has ')+v.pp;
+    case 'past_perf':
+      return 'had '+v.pp;
+    case 'future_perf':
+      return 'will have '+v.pp;
+    default: // present
+      if (hasIrr && pl && v.present_pl) return v.present_pl;
+      return pl ? v.base : v.present;
   }
 }
 
-// === NOUN DATA ===
+// Determine if a pronoun takes singular or plural verb agreement
+const SINGULAR_PRONOUNS = new Set(["i","he","him","she","her","it","myself","himself","herself","itself","who","whom"]);
+const PLURAL_PRONOUNS = new Set(["we","us","they","them","ourselves","themselves"]);
+// "you","yourself" take plural verb forms ("you run" not "you runs")
+
+function getPronounNumber(word) {
+  const w = word.toLowerCase();
+  if (SINGULAR_PRONOUNS.has(w)) return 'singular';
+  if (PLURAL_PRONOUNS.has(w)) return 'plural';
+  return 'plural'; // "you" and others default to plural verb form
+}
+
+// Find the subject's grammatical number and update all verbs accordingly
+function applyAgreement() {
+  // Find the first noun or pronoun before the first verb (the subject)
+  const firstVerbIdx = sentence.findIndex(s => s.cat === 'verb');
+  if (firstVerbIdx === -1) return;
+
+  // Search backwards from the verb for the subject noun/pronoun
+  let subjectNumber = 'singular'; // default
+  for (let i = firstVerbIdx - 1; i >= 0; i--) {
+    const s = sentence[i];
+    if (s.cat === 'noun' && s.number) {
+      subjectNumber = s.number;
+      break;
+    }
+    if (s.cat === 'pronoun') {
+      subjectNumber = getPronounNumber(s.word);
+      break;
+    }
+  }
+
+  // Also check plural-signaling articles: "these", "those" → plural
+  for (let i = firstVerbIdx - 1; i >= 0; i--) {
+    const s = sentence[i];
+    if (s.cat === 'article' && ['these','those'].includes(s.word.toLowerCase())) {
+      subjectNumber = 'plural';
+      break;
+    }
+    if (s.cat === 'noun' || s.cat === 'pronoun') break; // stop at the noun
+  }
+
+  // Update all verbs to agree (use the subject's number)
+  sentence.forEach(item => {
+    if (item.cat === 'verb' && item.verbIndex !== undefined) {
+      item.number = subjectNumber;
+      item.word = getVerbWord(item.verbIndex, item.tense, subjectNumber);
+    }
+  });
+}
+
+// === NOUN DATA (with type for sub-filtering) ===
 const NOUN_DATA = [
-  {s:"dog",p:"dogs"},{s:"cat",p:"cats"},{s:"bird",p:"birds"},{s:"bat",p:"bats"},
-  {s:"elephant",p:"elephants"},{s:"shark",p:"sharks"},{s:"pig",p:"pigs"},{s:"fish",p:"fish"},
-  {s:"turtle",p:"turtles"},{s:"monkey",p:"monkeys"},{s:"bunny",p:"bunnies"},{s:"ant",p:"ants"},
-  {s:"caterpillar",p:"caterpillars"},
-  {s:"girl",p:"girls"},{s:"boy",p:"boys"},{s:"mom",p:"moms"},{s:"dad",p:"dads"},
-  {s:"brother",p:"brothers"},{s:"sister",p:"sisters"},{s:"uncle",p:"uncles"},{s:"aunt",p:"aunts"},
-  {s:"cousin",p:"cousins"},{s:"grandma",p:"grandmas"},{s:"lady",p:"ladies"},{s:"guy",p:"guys"},
-  {s:"grandpa",p:"grandpas"},
-  {s:"cook",p:"cooks"},{s:"firefighter",p:"firefighters"},{s:"hero",p:"heroes"},
-  {s:"teacher",p:"teachers"},{s:"nurse",p:"nurses"},{s:"driver",p:"drivers"},
-  {s:"waiter",p:"waiters"},{s:"lawyer",p:"lawyers"},{s:"librarian",p:"librarians"},
-  {s:"secretary",p:"secretaries"},{s:"doctor",p:"doctors"},
-  {s:"baker",p:"bakers"},{s:"swimmer",p:"swimmers"},{s:"artist",p:"artists"},
-  {s:"dancer",p:"dancers"},{s:"runner",p:"runners"},{s:"reader",p:"readers"},
-  {s:"athlete",p:"athletes"},{s:"coach",p:"coaches"},{s:"student",p:"students"},
-  {s:"walker",p:"walkers"},{s:"dreamer",p:"dreamers"},
-  {s:"child",p:"children"},{s:"mouse",p:"mice"},{s:"person",p:"people"},
-  {s:"man",p:"men"},{s:"woman",p:"women"}
+  // Animals
+  {s:"dog",p:"dogs",t:"animal"},{s:"cat",p:"cats",t:"animal"},{s:"bird",p:"birds",t:"animal"},
+  {s:"bat",p:"bats",t:"animal"},{s:"elephant",p:"elephants",t:"animal"},{s:"shark",p:"sharks",t:"animal"},
+  {s:"pig",p:"pigs",t:"animal"},{s:"fish",p:"fish",t:"animal"},{s:"turtle",p:"turtles",t:"animal"},
+  {s:"monkey",p:"monkeys",t:"animal"},{s:"bunny",p:"bunnies",t:"animal"},{s:"ant",p:"ants",t:"animal"},
+  {s:"caterpillar",p:"caterpillars",t:"animal"},{s:"mouse",p:"mice",t:"animal"},
+  {s:"bear",p:"bears",t:"animal"},{s:"deer",p:"deer",t:"animal"},{s:"fox",p:"foxes",t:"animal"},
+  {s:"frog",p:"frogs",t:"animal"},{s:"horse",p:"horses",t:"animal"},{s:"wolf",p:"wolves",t:"animal"},
+  // People
+  {s:"girl",p:"girls",t:"person"},{s:"boy",p:"boys",t:"person"},{s:"mom",p:"moms",t:"person"},
+  {s:"dad",p:"dads",t:"person"},{s:"brother",p:"brothers",t:"person"},{s:"sister",p:"sisters",t:"person"},
+  {s:"uncle",p:"uncles",t:"person"},{s:"aunt",p:"aunts",t:"person"},{s:"cousin",p:"cousins",t:"person"},
+  {s:"grandma",p:"grandmas",t:"person"},{s:"lady",p:"ladies",t:"person"},{s:"guy",p:"guys",t:"person"},
+  {s:"grandpa",p:"grandpas",t:"person"},
+  {s:"cook",p:"cooks",t:"person"},{s:"firefighter",p:"firefighters",t:"person"},{s:"hero",p:"heroes",t:"person"},
+  {s:"teacher",p:"teachers",t:"person"},{s:"nurse",p:"nurses",t:"person"},{s:"driver",p:"drivers",t:"person"},
+  {s:"waiter",p:"waiters",t:"person"},{s:"lawyer",p:"lawyers",t:"person"},{s:"librarian",p:"librarians",t:"person"},
+  {s:"secretary",p:"secretaries",t:"person"},{s:"doctor",p:"doctors",t:"person"},
+  {s:"baker",p:"bakers",t:"person"},{s:"swimmer",p:"swimmers",t:"person"},{s:"artist",p:"artists",t:"person"},
+  {s:"dancer",p:"dancers",t:"person"},{s:"runner",p:"runners",t:"person"},{s:"reader",p:"readers",t:"person"},
+  {s:"athlete",p:"athletes",t:"person"},{s:"coach",p:"coaches",t:"person"},{s:"student",p:"students",t:"person"},
+  {s:"walker",p:"walkers",t:"person"},{s:"dreamer",p:"dreamers",t:"person"},
+  {s:"child",p:"children",t:"person"},{s:"person",p:"people",t:"person"},
+  {s:"man",p:"men",t:"person"},{s:"woman",p:"women",t:"person"},{s:"baby",p:"babies",t:"person"},
+  // Places
+  {s:"school",p:"schools",t:"place"},{s:"park",p:"parks",t:"place"},{s:"store",p:"stores",t:"place"},
+  {s:"library",p:"libraries",t:"place"},{s:"beach",p:"beaches",t:"place"},{s:"forest",p:"forests",t:"place"},
+  {s:"mountain",p:"mountains",t:"place"},{s:"ocean",p:"oceans",t:"place"},{s:"river",p:"rivers",t:"place"},
+  {s:"lake",p:"lakes",t:"place"},{s:"city",p:"cities",t:"place"},{s:"town",p:"towns",t:"place"},
+  {s:"farm",p:"farms",t:"place"},{s:"garden",p:"gardens",t:"place"},{s:"island",p:"islands",t:"place"},
+  {s:"hospital",p:"hospitals",t:"place"},{s:"church",p:"churches",t:"place"},{s:"museum",p:"museums",t:"place"},
+  {s:"restaurant",p:"restaurants",t:"place"},{s:"playground",p:"playgrounds",t:"place"},
+  {s:"bridge",p:"bridges",t:"place"},{s:"castle",p:"castles",t:"place"},{s:"cave",p:"caves",t:"place"},
+  {s:"kitchen",p:"kitchens",t:"place"},{s:"bedroom",p:"bedrooms",t:"place"},
+  // Things
+  {s:"book",p:"books",t:"thing"},{s:"ball",p:"balls",t:"thing"},{s:"car",p:"cars",t:"thing"},
+  {s:"tree",p:"trees",t:"thing"},{s:"flower",p:"flowers",t:"thing"},{s:"rock",p:"rocks",t:"thing"},
+  {s:"chair",p:"chairs",t:"thing"},{s:"table",p:"tables",t:"thing"},{s:"door",p:"doors",t:"thing"},
+  {s:"window",p:"windows",t:"thing"},{s:"box",p:"boxes",t:"thing"},{s:"bag",p:"bags",t:"thing"},
+  {s:"hat",p:"hats",t:"thing"},{s:"shoe",p:"shoes",t:"thing"},{s:"shirt",p:"shirts",t:"thing"},
+  {s:"boat",p:"boats",t:"thing"},{s:"bike",p:"bikes",t:"thing"},{s:"bus",p:"buses",t:"thing"},
+  {s:"phone",p:"phones",t:"thing"},{s:"clock",p:"clocks",t:"thing"},{s:"key",p:"keys",t:"thing"},
+  {s:"cake",p:"cakes",t:"thing"},{s:"pizza",p:"pizzas",t:"thing"},{s:"apple",p:"apples",t:"thing"},
+  {s:"cookie",p:"cookies",t:"thing"},{s:"sandwich",p:"sandwiches",t:"thing"},
+  {s:"letter",p:"letters",t:"thing"},{s:"song",p:"songs",t:"thing"},{s:"story",p:"stories",t:"thing"},
+  {s:"leaf",p:"leaves",t:"thing"},{s:"knife",p:"knives",t:"thing"},{s:"tooth",p:"teeth",t:"thing"},
+  {s:"foot",p:"feet",t:"thing"}
 ];
 
 function getNounWord(ni, num) { return num === 'plural' ? NOUN_DATA[ni].p : NOUN_DATA[ni].s; }
@@ -458,6 +577,7 @@ let usedIds = new Set();
 let activeCat = "noun";
 let activeTense = "present";
 let activeNounNum = "singular";
+let activeNounType = "all";
 let advancedTenses = false;
 let savedSentences = [];
 let sentenceType = "statement"; // statement, question, exclamation, command
@@ -496,6 +616,7 @@ function buildTabs() {
   document.getElementById('tenseBar').style.display = activeCat === 'verb' ? 'flex' : 'none';
   document.getElementById('advancedTenseBar').style.display = (activeCat === 'verb' && advancedTenses) ? 'flex' : 'none';
   document.getElementById('nounBar').style.display = activeCat === 'noun' ? 'flex' : 'none';
+  document.getElementById('nounTypeBar').style.display = activeCat === 'noun' ? 'flex' : 'none';
 }
 
 function setTense(tense) {
@@ -511,6 +632,12 @@ function setNounNumber(num) {
   buildGrid();
 }
 
+function setNounType(type) {
+  activeNounType = type;
+  document.querySelectorAll('[data-ntype]').forEach(b => b.classList.toggle('active', b.dataset.ntype === type));
+  buildGrid();
+}
+
 function toggleAdvancedTenses() {
   advancedTenses = !advancedTenses;
   document.getElementById('advancedTenseBtn').classList.toggle('active', advancedTenses);
@@ -523,7 +650,7 @@ function buildGrid() {
   grid.innerHTML = '';
   if (activeCat === 'verb') {
     VERB_DATA.forEach((v, i) => {
-      const word = getVerbWord(i, activeTense);
+      const word = getVerbWord(i, activeTense, 'singular');
       const id = 'verb_' + i;
       const card = mkCard(id, 'verb', `Verb · ${TENSE_NAMES[activeTense]||activeTense}`, word);
       card.onclick = () => addVerb(i, id);
@@ -531,9 +658,11 @@ function buildGrid() {
     });
   } else if (activeCat === 'noun') {
     NOUN_DATA.forEach((n, i) => {
+      if (activeNounType !== 'all' && n.t !== activeNounType) return;
       const word = getNounWord(i, activeNounNum);
       const id = 'noun_' + i;
-      const card = mkCard(id, 'noun', `Noun · ${activeNounNum}`, word);
+      const typeLabel = n.t === 'person' ? 'Person' : n.t === 'animal' ? 'Animal' : n.t === 'place' ? 'Place' : 'Thing';
+      const card = mkCard(id, 'noun', `Noun · ${typeLabel} · ${activeNounNum}`, word);
       card.onclick = () => addNoun(i, id);
       grid.appendChild(card);
     });
@@ -561,14 +690,16 @@ function addWord(cat, word, id) {
   usedIds.add(id);
   sentence.push({ cat, word, id });
   if (autoLabelOn) autoLabel();
+  applyAgreement();
   render();
 }
 
 function addVerb(vi, id) {
   if (usedIds.has(id) || scrambleMode) return;
   usedIds.add(id);
-  sentence.push({ cat:'verb', word: getVerbWord(vi, activeTense), id, verbIndex:vi, tense:activeTense });
+  sentence.push({ cat:'verb', word: getVerbWord(vi, activeTense, 'singular'), id, verbIndex:vi, tense:activeTense, number:'singular' });
   if (autoLabelOn) autoLabel();
+  applyAgreement();
   render();
 }
 
@@ -577,23 +708,27 @@ function addNoun(ni, id) {
   usedIds.add(id);
   sentence.push({ cat:'noun', word: getNounWord(ni, activeNounNum), id, nounIndex:ni, number:activeNounNum });
   if (autoLabelOn) autoLabel();
+  applyAgreement();
   render();
 }
 
 function setVerbTenseInSentence(idx, tense) {
   const item = sentence[idx]; if (item.cat!=='verb'||item.verbIndex===undefined) return;
-  item.tense = tense; item.word = getVerbWord(item.verbIndex, tense); render();
+  item.tense = tense; item.word = getVerbWord(item.verbIndex, tense, item.number || 'singular'); render();
 }
 
 function setNounNumberInSentence(idx, num) {
   const item = sentence[idx]; if (item.cat!=='noun'||item.nounIndex===undefined) return;
-  item.number = num; item.word = getNounWord(item.nounIndex, num); render();
+  item.number = num; item.word = getNounWord(item.nounIndex, num);
+  applyAgreement();
+  render();
 }
 
 function undoLast() {
   if (!sentence.length || scrambleMode) return;
   usedIds.delete(sentence.pop().id);
   if (autoLabelOn) autoLabel();
+  applyAgreement();
   render();
 }
 
@@ -609,6 +744,7 @@ function removeFromSentence(idx) {
   if (scrambleMode) return;
   usedIds.delete(sentence.splice(idx, 1)[0].id);
   if (autoLabelOn) autoLabel();
+  applyAgreement();
   render();
 }
 
@@ -627,7 +763,7 @@ function toggleAutoLabel() {
   activeLabelMode = null;
   document.querySelectorAll('.label-toggle').forEach(b => b.classList.remove('active'));
   if (autoLabelOn) { document.getElementById('labelHint').textContent = 'Auto-labeling S / P / O'; autoLabel(); }
-  else { document.getElementById('labelHint').textContent = 'click a toggle, then click cards'; sentence.forEach(s => delete s.role); }
+  else { document.getElementById('labelHint').textContent = 'click a toggle, then click cards'; sentence.forEach(s => { delete s.role; delete s.role2; }); }
   render();
 }
 
@@ -635,15 +771,24 @@ function autoLabel() {
   sentence.forEach(s => delete s.role);
   const firstVerb = sentence.findIndex(s => s.cat === 'verb');
   if (firstVerb === -1) { sentence.forEach(s => { if (s.cat !== 'interjection') s.role = 'subject'; }); return; }
-  let predEnd = firstVerb;
+
+  // Everything before the first verb = subject
+  // Everything from the first verb onward = predicate
+  // Within the predicate, find the direct object (noun/pronoun group after the verb cluster)
+  let verbClusterEnd = firstVerb;
   for (let i = firstVerb+1; i < sentence.length; i++) {
-    if (sentence[i].cat === 'verb' || sentence[i].cat === 'adverb') predEnd = i; else break;
+    if (sentence[i].cat === 'verb' || sentence[i].cat === 'adverb') verbClusterEnd = i; else break;
   }
+
   sentence.forEach((s, i) => {
-    if (s.cat === 'interjection' || s.cat === 'conjunction') return;
+    if (s.cat === 'interjection') return;
+    if (s.cat === 'conjunction') { s.role = 'predicate'; return; }
     if (i < firstVerb) s.role = 'subject';
-    else if (i <= predEnd) s.role = 'predicate';
-    else s.role = 'object';
+    else {
+      s.role = 'predicate';
+      // Mark direct object: noun/pronoun/article/adjective/prep groups after verb cluster
+      if (i > verbClusterEnd) s.role2 = 'object';
+    }
   });
 }
 
@@ -716,12 +861,20 @@ function render() {
       if (activeLabelMode) card.style.cursor = 'crosshair';
 
       let labelText = CAT_SINGULAR[item.cat] || item.cat;
-      if (item.cat === 'verb' && item.tense) labelText += ' · ' + (TENSE_NAMES[item.tense]||item.tense);
+      if (item.cat === 'verb' && item.tense) {
+        const numTag = item.number === 'plural' ? ' (pl)' : ' (sg)';
+        labelText += ' · ' + (TENSE_NAMES[item.tense]||item.tense) + numTag;
+      }
       if (item.cat === 'noun' && item.number) labelText += ' · ' + item.number;
 
       let inner = `<span class="card-label">${labelText}</span><span class="card-word">${item.word}</span>`;
       if (!scrambleMode) inner += `<button class="remove-btn" onclick="event.stopPropagation(); removeFromSentence(${i})">✕</button>`;
-      if (item.role) inner += `<span class="role-dot ${item.role}">${item.role.slice(0,4)}</span>`;
+      if (item.role) {
+        let dotLabel = item.role.slice(0,4);
+        let dotClass = item.role;
+        if (item.role2 === 'object') { dotLabel = 'obj'; dotClass = 'object'; }
+        inner += `<span class="role-dot ${dotClass}">${dotLabel}</span>`;
+      }
 
       // Verb tense toggles
       if (item.cat === 'verb' && item.verbIndex !== undefined && !scrambleMode) {
@@ -778,29 +931,54 @@ function renderPreview() {
     return;
   }
 
-  const groups = []; let cr = undefined, cw = [];
+  // Build groups: subject, predicate (which may contain nested object)
+  // Group consecutive words by role
+  const groups = [];
+  let cr = undefined, cw = [];
   sentence.forEach(item => {
     const r = item.role || null;
-    if (r !== cr) { if (cw.length) groups.push({role:cr,words:cw}); cr = r; cw = [item.word]; }
-    else cw.push(item.word);
+    if (r !== cr) { if (cw.length) groups.push({role:cr,items:cw}); cr = r; cw = [{word:item.word, role2:item.role2}]; }
+    else cw.push({word:item.word, role2:item.role2});
   });
-  if (cw.length) groups.push({role:cr,words:cw});
+  if (cw.length) groups.push({role:cr,items:cw});
 
   let html = '', isFirst = true;
   groups.forEach(g => {
-    if (g.role) {
-      const label = g.role==='subject'?'S':g.role==='predicate'?'P':'O';
-      html += `<span class="bracket-open ${g.role}">[</span>`;
-      g.words.forEach((w, wi) => {
-        let word = w; if (isFirst) { word = word.charAt(0).toUpperCase()+word.slice(1); isFirst = false; }
-        html += `<span class="pw pw-${g.role}">${word}</span>`;
-        if (wi < g.words.length-1) html += ' ';
+    if (g.role === 'subject') {
+      html += `<span class="bracket-open subject">[</span>`;
+      g.items.forEach((it, wi) => {
+        let word = it.word; if (isFirst) { word = word.charAt(0).toUpperCase()+word.slice(1); isFirst = false; }
+        html += `<span class="pw pw-subject">${word}</span>`;
+        if (wi < g.items.length-1) html += ' ';
       });
-      html += `<span class="bracket-close ${g.role}">]</span><span class="bracket-label-tag ${g.role}">${label}</span> `;
+      html += `<span class="bracket-close subject">]</span><span class="bracket-label-tag subject">S</span> `;
+    } else if (g.role === 'predicate') {
+      html += `<span class="bracket-open predicate">[</span>`;
+      // Within predicate, sub-group by role2 to find object spans
+      let inObject = false;
+      g.items.forEach((it, wi) => {
+        let word = it.word; if (isFirst) { word = word.charAt(0).toUpperCase()+word.slice(1); isFirst = false; }
+        if (it.role2 === 'object' && !inObject) {
+          // Open object bracket
+          html += `<span class="bracket-open object">[</span>`;
+          inObject = true;
+        } else if (it.role2 !== 'object' && inObject) {
+          // Close object bracket
+          html += `<span class="bracket-close object">]</span><span class="bracket-label-tag object">DO</span> `;
+          inObject = false;
+        }
+        const pwClass = it.role2 === 'object' ? 'pw-object' : 'pw-predicate';
+        html += `<span class="pw ${pwClass}">${word}</span>`;
+        if (wi < g.items.length-1) html += ' ';
+      });
+      if (inObject) {
+        html += `<span class="bracket-close object">]</span><span class="bracket-label-tag object">DO</span>`;
+      }
+      html += `<span class="bracket-close predicate">]</span><span class="bracket-label-tag predicate">P</span> `;
     } else {
-      g.words.forEach((w, wi) => {
-        let word = w; if (isFirst) { word = word.charAt(0).toUpperCase()+word.slice(1); isFirst = false; }
-        html += word; if (wi < g.words.length-1) html += ' ';
+      g.items.forEach((it, wi) => {
+        let word = it.word; if (isFirst) { word = word.charAt(0).toUpperCase()+word.slice(1); isFirst = false; }
+        html += word; if (wi < g.items.length-1) html += ' ';
       });
       html += ' ';
     }
@@ -822,7 +1000,7 @@ function showDI(ti, e) {
   });
 }
 function clearDI() { document.querySelectorAll('.sentence-cards .card').forEach(c => { c.style.borderLeft=''; c.style.borderRight=''; }); }
-function reorder(from, to) { const item=sentence.splice(from,1)[0]; sentence.splice(to,0,item); if(autoLabelOn)autoLabel(); render(); }
+function reorder(from, to) { const item=sentence.splice(from,1)[0]; sentence.splice(to,0,item); if(autoLabelOn)autoLabel(); applyAgreement(); render(); }
 
 // === STEPS ===
 function updateSteps() {
@@ -858,10 +1036,23 @@ function saveSentence() {
   const punct = getEndPunctuation();
   let text;
   if (hasRoles) {
-    const groups = []; let cr = undefined, cw = [];
-    sentence.forEach(item => { const r=item.role||null; if(r!==cr){if(cw.length)groups.push({role:cr,words:cw});cr=r;cw=[item.word];}else cw.push(item.word); });
-    if(cw.length) groups.push({role:cr,words:cw});
-    text = groups.map(g => { const w=g.words.join(' '); if(g.role)return `[${w}]${g.role==='subject'?'S':g.role==='predicate'?'P':'O'}`; return w; }).join(' ');
+    // Build text with nested brackets: [subject]S [predicate [object]DO ]P
+    let parts = '';
+    let inSubject = false, inPred = false, inObj = false;
+    sentence.forEach((s, i) => {
+      const word = (i === 0) ? s.word.charAt(0).toUpperCase() + s.word.slice(1) : s.word;
+      if (s.role === 'subject' && !inSubject) { parts += '['; inSubject = true; }
+      if (s.role === 'predicate' && inSubject) { parts = parts.trim() + ']S '; inSubject = false; }
+      if (s.role === 'predicate' && !inPred) { parts += '['; inPred = true; }
+      if (s.role2 === 'object' && !inObj) { parts += '['; inObj = true; }
+      if (s.role2 !== 'object' && inObj) { parts = parts.trim() + ']DO '; inObj = false; }
+      if (s.role !== 'predicate' && inPred) { parts = parts.trim() + ']P '; inPred = false; }
+      parts += word + ' ';
+    });
+    if (inObj) parts = parts.trim() + ']DO ';
+    if (inPred) parts = parts.trim() + ']P ';
+    if (inSubject) parts = parts.trim() + ']S ';
+    text = parts.trim();
   } else text = sentence.map(s => s.word).join(' ');
   text = text.charAt(0).toUpperCase() + text.slice(1);
   if (!/[.!?]$/.test(text)) text += punct;
