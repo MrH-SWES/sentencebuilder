@@ -124,6 +124,7 @@
   .cat-tab[data-cat="adverb"]      { background: #b8e6c8; color: #1a5c2e; }
   .cat-tab[data-cat="conjunction"] { background: #d4e8d4; color: #2d5a2d; }
   .cat-tab[data-cat="article"]     { background: #f0f0f0; color: #555; }
+  .cat-tab[data-cat="determiner"]  { background: #e0e0e0; color: #444; }
   .cat-tab[data-cat="interjection"]{ background: #e8d0f0; color: #5b2d7a; }
   .cat-tab[data-cat="prep"]        { background: #ffd6a8; color: #7a4400; }
   .word-grid { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -143,6 +144,7 @@
   .card[data-cat="verb"]        { background: #bde; }
   .card[data-cat="adjective"]   { background: #ffedb3; }
   .card[data-cat="article"]     { background: #f5f5f5; }
+  .card[data-cat="determiner"]  { background: #e8e8e8; }
   .card[data-cat="adverb"]      { background: #b8e6c8; }
   .card[data-cat="conjunction"] { background: #d4e8d4; }
   .card[data-cat="interjection"]{ background: #e8d0f0; }
@@ -459,10 +461,11 @@ function applyAgreement() {
     }
   }
 
-  // Also check plural-signaling articles: "these", "those" → plural
+  // Also check plural-signaling determiners: "these", "those", "many", "few", "several", "both", "all" → plural
+  const PLURAL_DETERMINERS = ['these','those','many','few','several','both','all'];
   for (let i = firstVerbIdx - 1; i >= 0; i--) {
     const s = sentence[i];
-    if (s.cat === 'article' && ['these','those'].includes(s.word.toLowerCase())) {
+    if ((s.cat === 'article' || s.cat === 'determiner') && PLURAL_DETERMINERS.includes(s.word.toLowerCase())) {
       subjectNumber = 'plural';
       break;
     }
@@ -533,7 +536,8 @@ function getNounWord(ni, num) { return num === 'plural' ? NOUN_DATA[ni].p : NOUN
 
 // === WORD LISTS ===
 const WORDS = {
-  article: ["the","a","an","this","that","these","those","every","each","some","any","no","my","your","his","her","our","their"],
+  article: ["the","a","an"],
+  determiner: ["this","that","these","those","every","each","some","any","no","many","few","several","all","both","my","your","his","her","our","their","its"],
   noun: NOUN_DATA.map(n => n.s),
   pronoun: ["I","me","you","he","him","she","her","it","we","us","they","them","who","whom","myself","yourself","himself","herself","itself","ourselves","themselves"],
   verb: VERB_DATA.map(v => v.present),
@@ -568,12 +572,12 @@ const WORDS = {
 };
 
 const CAT_LABELS = {
-  article:"Articles", noun:"Nouns", pronoun:"Pronouns", verb:"Verbs",
+  article:"Articles", determiner:"Determiners", noun:"Nouns", pronoun:"Pronouns", verb:"Verbs",
   preposition:"Prepositions", adjective:"Adjectives", adverb:"Adverbs",
   conjunction:"Conjunctions", interjection:"Interjections", prep:"Prep Phrases"
 };
 const CAT_SINGULAR = {
-  article:"Article", noun:"Noun", pronoun:"Pronoun", verb:"Verb",
+  article:"Article", determiner:"Determiner", noun:"Noun", pronoun:"Pronoun", verb:"Verb",
   preposition:"Preposition", adjective:"Adjective", adverb:"Adverb",
   conjunction:"Conjunction", interjection:"Interjection", prep:"Prep Phrase"
 };
